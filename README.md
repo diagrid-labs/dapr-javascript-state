@@ -1,8 +1,64 @@
-# Dapr state management quickstart (JavaScript SDK)
+# Dapr State Management with Redis
 
-A single-service quickstart that demonstrates the [Dapr state management API](https://docs.dapr.io/developing-applications/building-blocks/state-management/) with the JavaScript SDK. The `order-processor` service loops 100 times and, on each iteration, saves an order to a state store, reads it back, and deletes it.
+A single-service quickstart that demonstrates the [Dapr state management API](https://docs.dapr.io/developing-applications/building-blocks/state-management/) with the JavaScript SDK. The `order-processor` service loops 100 times and, on each iteration, saves an order to a state store, reads it back, and deletes it. The store is Redis, running locally in a container.
 
-State is persisted in Redis through a Dapr [state store component](./resources/statestore.yaml), so the application code never talks to Redis directly — it only calls `client.state.save()`, `client.state.get()`, and `client.state.delete()`.
+## How Dapr abstracts the state store
+
+The point of this quickstart is not Redis. It is that the application code never mentions Redis at all.
+
+Normally, persisting a value means picking a database, adding its client library to your
+project, learning its API, and wiring up connection strings and credentials. That store then
+becomes part of your application code — moving from Redis to PostgreSQL later means
+rewriting every call site.
+
+Dapr replaces that with a **building block**: a stable API for a capability (state
+management, pub/sub, secrets, workflows) that your app calls the same way regardless of
+which product sits behind it. Your app talks to its Dapr sidecar over HTTP or gRPC, and the
+sidecar talks to the actual infrastructure.
+
+Concretely, all this app knows is a *name*:
+
+```js
+const DAPR_STATE_STORE_NAME = "statestore"
+
+await client.state.save(DAPR_STATE_STORE_NAME, [{ key: order.orderId, value: order }])
+const savedOrder = await client.state.get(DAPR_STATE_STORE_NAME, order.orderId)
+await client.state.delete(DAPR_STATE_STORE_NAME, order.orderId)
+```
+
+That name is resolved at runtime by a **component** — a small piece of YAML that binds
+`statestore` to a concrete implementation. Here it points at Redis
+([`resources/statestore.yaml`](./resources/statestore.yaml)):
+
+```yaml
+metadata:
+  name: statestore     # <- the name the app asks for
+spec:
+  type: state.redis    # <- the implementation Dapr loads
+  version: v1
+  metadata:
+  - name: redisHost
+    value: localhost:6379
+```
+
+A few things follow from this split:
+
+- **The backing store is a deployment decision, not a code decision.** Swapping Redis for
+  PostgreSQL, MongoDB, DynamoDB, or [any other supported state
+  store](https://docs.dapr.io/reference/components-reference/supported-state-stores/) means
+  editing that YAML. `index.js` does not change, and neither does `package.json` — there is
+  no Redis client in this project's dependencies.
+- **You get one set of semantics across all of them.** ETags for optimistic concurrency,
+  configurable consistency, bulk operations, and TTLs work the same way whether the store
+  underneath supports them natively or Dapr emulates them.
+- **Credentials stay out of the app.** Connection details live in component config, and
+  values like `redisPassword` can reference a secret store instead of being written inline.
+- **Cross-cutting behavior is configuration too.** The retry policy and circuit breaker in
+  [`resources/resiliency.yaml`](./resources/resiliency.yaml) are applied to calls against
+  `statestore` without a single `try`/`catch` in the application.
+
+The trade-off is a second process to run and reason about — the sidecar — plus a local hop
+on every call. In exchange, the app stops being coupled to any particular database.
 
 ## Architecture
 
@@ -94,16 +150,6 @@ If your Redis listens elsewhere or requires a password, edit `redisHost` and `re
    ```bash
    dapr stop -f .
    ```
-
-### Alternative: run the single app directly
-
-```bash
-cd order-processor
-npm install
-dapr run --app-id order-processor --resources-path ../resources/ -- npm start
-```
-
-Stop it with `dapr stop --app-id order-processor`.
 
 ## Inspect the stored state
 
