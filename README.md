@@ -28,11 +28,12 @@ flowchart LR
 
 - [Node.js](https://nodejs.org/) 18 or later
 - [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/), initialized with `dapr init`
-- [Docker](https://docs.docker.com/get-docker/) (for Redis)
+- [Docker Desktop](https://docs.docker.com/desktop/), running (Redis runs in a container)
 
 ## Start a local Redis
 
-The state store component points at `localhost:6379`. Pick whichever option fits your setup.
+The state store component points at `localhost:6379`. Make sure Docker Desktop is running,
+then pick whichever option fits your setup.
 
 ### Option 1: Reuse the Redis that `dapr init` created (simplest)
 
@@ -50,16 +51,8 @@ docker start dapr_redis
 
 ### Option 2: Run your own Redis container
 
-Use the included Compose file:
-
 ```bash
-docker compose up -d
-```
-
-Or start a container directly:
-
-```bash
-docker run -d --name js-state-quickstart-redis -p 6379:6379 redis:7-alpine
+docker run -d --name dapr-state-redis -p 6379:6379 redis:7-alpine
 ```
 
 Only one process can hold port 6379, so stop `dapr_redis` first if it is running (`docker stop dapr_redis`).
@@ -67,10 +60,10 @@ Only one process can hold port 6379, so stop `dapr_redis` first if it is running
 ### Verify Redis is reachable
 
 ```bash
-docker exec -it js-state-quickstart-redis redis-cli ping
+docker exec -it dapr_redis redis-cli ping
 ```
 
-Use `dapr_redis` as the container name for Option 1. A healthy Redis replies `PONG`.
+Use `dapr-state-redis` as the container name if you chose Option 2. A healthy Redis replies `PONG`.
 
 If your Redis listens elsewhere or requires a password, edit `redisHost` and `redisPassword` in [`resources/statestore.yaml`](./resources/statestore.yaml).
 
@@ -146,10 +139,19 @@ docker exec -it dapr_redis redis-cli hgetall 'order-processor||1'
 
 ## Clean up
 
+Stop the app:
+
 ```bash
 dapr stop -f .
-docker compose down          # if you used Option 2's Compose file
 ```
+
+If you started your own Redis container in Option 2, remove it:
+
+```bash
+docker rm -f dapr-state-redis
+```
+
+Leave `dapr_redis` alone — other Dapr apps on your machine use it.
 
 ## Attribution
 
